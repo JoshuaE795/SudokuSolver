@@ -1,17 +1,16 @@
 # Sudoku Solver
 
-A PyQt6 Sudoku application backed by a custom logical Sudoku solver.
+A PyQt6 Sudoku application backed by a custom technique based Sudoku solver.
 
 ## Features
 
 - Editable 9×9 Sudoku board
-- Direct keyboard input
 - Sudoku validation for duplicate values
-- One-click solving
+- One-click solve button
 - Solve-time measurement
-- Example puzzle loader
-- Clear/reset controls
-- Custom logical solving engine rather than a simple brute-force-only implementation
+- 1 Example puzzle
+- Clear/reset the board
+- Custom logical solving engine that shows you each step
 
 ## Solver
 
@@ -28,11 +27,11 @@ The solver maintains candidate lists for blank cells and implements multiple Sud
 - Swordfish
 - Jellyfish
 
-The GUI is intentionally separated from the solving engine so the algorithm can be tested independently.
+Main GUI program is kept separate from the solver for indepenent testing
 
 ## Run
 
-Install PyQt6:
+Install Required Package PyQt6:
 
 `pip install PyQt6`
 
