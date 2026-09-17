@@ -3,6 +3,7 @@ from time import perf_counter
 
 logging:bool = False
 
+
 class Blank(object):
 
     def __init__(self) -> None:
@@ -11,10 +12,14 @@ class Blank(object):
     def __repr__(self) -> str:
         return "_"
 
+
 class Puzzle(object):
 
     def __init__(self, cells:list[list[int | Blank]]) -> None:
         self.cells = cells
+        self.technique_sequence:list[str] = []
+        self.technique_states:list[tuple] = []
+        self.initial_state:tuple = self.get_state()
 
     def __iter__(self):
         return iter(self.cells)
@@ -30,12 +35,12 @@ class Puzzle(object):
     
     def log(self, move:function, blank:Blank) -> None:
         doc:str = move.__doc__
-        print(f"{doc[doc.index("(Solve ")+7:doc.index(')')]} altered {self.coords(blank)}") # holy unreadable
-    
+        print(f"{doc[doc.index("(Solve ")+7:doc.index(')')]} altered {self.coords(blank)}")
+
     def get_indices(self, blank:Blank) -> tuple[int]:
         for i in range(len(self)):
             for j in range(len(self[i])):
-                if self[i][j] == blank:
+                if self.cells[i][j] == blank:
                     return (i, j)
 
     def get_rowdex(self, i:int) -> list[int | Blank]:
@@ -119,7 +124,6 @@ class Puzzle(object):
                 count += 1
         return count
     
-
     def columns(self) -> list[list[int | Blank]]:
         return [self.get_coldex(i) for i in range(9)]
     
@@ -139,40 +143,77 @@ class Puzzle(object):
                 if isinstance(cell, Blank):
                     return False
         return True
-    
+
+    def is_valid(self) -> bool:
+        for row in self:
+            numbers = [cell for cell in row if isinstance(cell, int)]
+            if len(numbers) != len(set(numbers)):
+                return False
+
+        for column in self.columns():
+            numbers = [cell for cell in column if isinstance(cell, int)]
+            if len(numbers) != len(set(numbers)):
+                return False
+
+        for nonet in self.nonets():
+            numbers = [cell for cell in nonet if isinstance(cell, int)]
+            if len(numbers) != len(set(numbers)):
+                return False
+
+        return True
+
+    def get_state(self) -> tuple:
+        state:list = []
+
+        for row in self:
+            row_state:list = []
+
+            for cell in row:
+                if isinstance(cell, Blank):
+                    row_state.append(("blank", tuple(cell.candidates)))
+                else:
+                    row_state.append(("number", cell))
+
+            state.append(tuple(row_state))
+
+        return tuple(state)
+
+    def record_technique(self, technique:str) -> None:
+        self.technique_sequence.append(technique)
+        self.technique_states.append(self.get_state())
+
     def update(self) -> None:
         '''
         (Solve Basic Elimination)
         
         Removes candidates based on numbers
         '''
-        for row in self: # traverse rows
-            for cell in row: # traverse cells in search of blanks
-                if isinstance(cell, Blank): # if current cell is a blank
-                    i, j = self.get_indices(cell) # get indices of the blank to reference/modify directly 
+        for row in self:
+            for cell in row:
+                if isinstance(cell, Blank):
+                    i, j = self.get_indices(cell)
 
-                    # OBVIOUS CANDIDATE REMOVAL
-                    # --------------------------------------------------------------------------------
-                    for cell2 in row: # traverse the row of the blank (the same row again)
-                        if isinstance(cell2, int) and cell2 in cell.candidates: # if 2nd traversal cell is a number
-                            self[i][j].candidates.remove(cell2) # remove the number from the initial blank's candidates
+                    for cell2 in row:
+                        if isinstance(cell2, int) and cell2 in cell.candidates:
+                            self[i][j].candidates.remove(cell2)
                             if logging:
                                 self.log(self.update, cell)
                                 print(f"{cell2} removed from R{i+1}C{j+1} by row")
-                    for cell2 in self.get_column(cell): # traverse the column of the blank
-                        if isinstance(cell2, int) and cell2 in cell.candidates: # if column traversal cell is a number
-                            self[i][j].candidates.remove(cell2) # remove the number from the initial blank's candidates
-                            if logging:    
+
+                    for cell2 in self.get_column(cell):
+                        if isinstance(cell2, int) and cell2 in cell.candidates:
+                            self[i][j].candidates.remove(cell2)
+                            if logging:
                                 self.log(self.update, cell)
                                 print(f"{cell2} removed from R{i+1}C{j+1} by column")
-                    for cell2 in self.get_nonet(cell): # traverse the nonet of the blank
-                        if isinstance(cell2, int) and cell2 in cell.candidates: # if nonet traversal cell is a number
-                            self[i][j].candidates.remove(cell2) # remove the number from the initial blank's candidates
+
+                    for cell2 in self.get_nonet(cell):
+                        if isinstance(cell2, int) and cell2 in cell.candidates:
+                            self[i][j].candidates.remove(cell2)
                             if logging:
                                 self.log(self.update, cell)
                                 print(f"{cell2} removed from R{i+1}C{j+1} by nonet")
-                    # --------------------------------------------------------------------------------
-                                 
+    
     def solve_os(self) -> None:
         '''
         (Solve Obvious Singles)
@@ -180,16 +221,18 @@ class Puzzle(object):
         If a blank has only one remaining candidate, replace it 
         with that candidate
         '''
-        for row in self: # traverse rows
-            for cell in row: # traverse cells in search of blanks
-                if isinstance(cell, Blank): # if current cell is a blank
-                    i, j = self.get_indices(cell) # get indices of the blank to reference/modify directly 
-                    if len(self[i][j].candidates) == 1: # if the blank has only one candidate left
+        for row in self:
+            for cell in row:
+                if isinstance(cell, Blank):
+                    i, j = self.get_indices(cell)
+
+                    if len(self[i][j].candidates) == 1:
                         if logging:
                             print(f"{self[i][j].candidates[0]} is R{i+1}C{j+1}'s last candidate")
-                        self[i][j] = self[i][j].candidates[0] # replace it with that candidate
-                    elif isinstance(cell, Blank) and len(self[i][j].candidates) == 0: # if the blank has no remaining candidates, 
-                        raise BaseException(f"Something went wrong :( --> {self.coords(cell)} \n\n{self}") # cease execution immediately and report cell coordinates
+                        self[i][j] = self[i][j].candidates[0]
+
+                    elif isinstance(cell, Blank) and len(self[i][j].candidates) == 0:
+                        raise BaseException(f"Something went wrong :( --> {self.coords(cell)} \n\n{self}")
     
     def solve_op(self) -> None:
         '''
@@ -199,56 +242,68 @@ class Puzzle(object):
         possess the same two only remaining candidates, remove those
         candidates from all other blanks on which those two blanks reside
         '''
-        
         two_candidate_blanks:list[Blank] = [blank for blank in self.blanks() if len(blank.candidates) == 2]
+
         for i in range(len(two_candidate_blanks)):
             for j in range(1+i, len(two_candidate_blanks)):
                 if two_candidate_blanks[i].candidates == two_candidate_blanks[j].candidates:
+
                     if self.same_row(two_candidate_blanks[i], two_candidate_blanks[j]):
                         obv_pair:list[Blank] = [two_candidate_blanks[i], two_candidate_blanks[j]]
+
                         for cell in self.get_row(two_candidate_blanks[i]):
                             if isinstance(cell, Blank) and cell not in obv_pair:
                                 k, l = self.get_indices(cell)
-                                try: 
+
+                                try:
                                     self[k][l].candidates.remove(two_candidate_blanks[i].candidates[0])
                                     if logging:
                                         print(f"(Row) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[0]}")
                                 except ValueError:
                                     pass
+
                                 try:
                                     self[k][l].candidates.remove(two_candidate_blanks[i].candidates[1])
                                     if logging:
                                         print(f"(Row) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[1]}")
                                 except ValueError:
                                     pass
+
                     if self.same_col(two_candidate_blanks[i], two_candidate_blanks[j]):
                         obv_pair:list[Blank] = [two_candidate_blanks[i], two_candidate_blanks[j]]
+
                         for cell in self.get_column(two_candidate_blanks[i]):
                             if isinstance(cell, Blank) and cell not in obv_pair:
                                 k, l = self.get_indices(cell)
-                                try: 
+
+                                try:
                                     self[k][l].candidates.remove(two_candidate_blanks[i].candidates[0])
                                     if logging:
-                                        print(f"(Row) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[0]}")
+                                        print(f"(Column) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[0]}")
                                 except ValueError:
                                     pass
+
                                 try:
                                     self[k][l].candidates.remove(two_candidate_blanks[i].candidates[1])
                                     if logging:
-                                        print(f"(Row) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[1]}")
+                                        print(f"(Column) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[1]}")
                                 except ValueError:
                                     pass
+
                     if self.same_nonet(two_candidate_blanks[i], two_candidate_blanks[j]):
                         obv_pair:list[Blank] = [two_candidate_blanks[i], two_candidate_blanks[j]]
+
                         for cell in self.get_nonet(two_candidate_blanks[i]):
                             if isinstance(cell, Blank) and cell not in obv_pair:
                                 k, l = self.get_indices(cell)
-                                try: 
+
+                                try:
                                     self[k][l].candidates.remove(two_candidate_blanks[i].candidates[0])
                                     if logging:
                                         print(f"(Row) R{k+1}C{l+1} : {two_candidate_blanks[i].candidates[0]}")
                                 except ValueError:
                                     pass
+
                                 try:
                                     self[k][l].candidates.remove(two_candidate_blanks[i].candidates[1])
                                     if logging:
@@ -259,74 +314,79 @@ class Puzzle(object):
     def solve_ot(self) -> None:
         '''
         (Solve Obvious Triples)
-        
-        
         '''
-        for i in range(len(self.blanks())): # icl idec abt efficiency atp js put the fries in the bag vro /{wilting rose} /{broken heart} /{low battery}
+        for i in range(len(self.blanks())):
             for j in range(1+i, len(self.blanks())):
                 for k in range(1+j, len(self.blanks())):
                     combined:list[int] = self.blanks()[i].candidates + self.blanks()[j].candidates + self.blanks()[k].candidates
+
                     if self.same_group(self.blanks()[i], self.blanks()[j], self.blanks()[k]) and len(set(combined)) == 3 and len(combined) > 5:
                         for cell in self.same_group(self.blanks()[i], self.blanks()[j], self.blanks()[k], ret=True):
                             if isinstance(cell, Blank) and cell not in [self.blanks()[i], self.blanks()[j], self.blanks()[k]]:
                                 try:
                                     l, m = self.get_indices(cell)
                                     self[l][m].candidates.remove(combined[0])
-                                    if logging: 
+
+                                    if logging:
                                         self.log(self.solve_ot, cell)
                                         print(f"  -= {combined[0]}")
+
                                     self[l][m].candidates.remove(combined[1])
-                                    if logging: 
+
+                                    if logging:
                                         self.log(self.solve_ot, cell)
                                         print(f"  -= {combined[1]}")
+
                                     self[l][m].candidates.remove(combined[2])
-                                    if logging: 
+
+                                    if logging:
                                         self.log(self.solve_ot, cell)
                                         print(f"  -= {combined[2]}")
+
                                 except ValueError:
                                     pass
 
-                
-
-
-
-
-    def solve_oq(self) -> None: # Built based off obvious triples but is completely untested ToT
+    def solve_oq(self) -> None:
         '''
         (Solve Obvious Quads)
-        
-        
         '''
-        # The final one... (for a while)
         for i in range(len(self.blanks())): 
             for j in range(1+i, len(self.blanks())):
                 for k in range(1+j, len(self.blanks())):
                     for l in range(1+k, len(self.blanks())):
                         combined:list[int] = self.blanks()[i].candidates + self.blanks()[j].candidates + self.blanks()[k].candidates + self.blanks()[l].candidates
+
                         if self.same_group(self.blanks()[i], self.blanks()[j], self.blanks()[k]) and len(set(combined)) == 4 and len(combined) > 7:
                             for cell in self.same_group(self.blanks()[i], self.blanks()[j], self.blanks()[k], self.blanks()[l], ret=True):
                                 if isinstance(cell, Blank) and cell not in [self.blanks()[i], self.blanks()[j], self.blanks()[k], self.blanks()[l]]:
                                     try:
                                         m, n = self.get_indices(cell)
                                         self[m][n].candidates.remove(combined[0])
-                                        if logging: 
+
+                                        if logging:
                                             self.log(self.solve_oq, cell)
                                             print(f"  -= {combined[0]}")
+
                                         self[m][n].candidates.remove(combined[1])
-                                        if logging: 
+
+                                        if logging:
                                             self.log(self.solve_oq, cell)
                                             print(f"  -= {combined[1]}")
+
                                         self[m][n].candidates.remove(combined[2])
-                                        if logging: 
+
+                                        if logging:
                                             self.log(self.solve_oq, cell)
                                             print(f"  -= {combined[2]}")
+
                                         self[m][n].candidates.remove(combined[3])
-                                        if logging: 
+
+                                        if logging:
                                             self.log(self.solve_oq, cell)
                                             print(f"  -= {combined[3]}")
+
                                     except ValueError:
                                         pass
-    
     
     def solve_hs(self) -> None:
         '''
@@ -337,29 +397,34 @@ class Puzzle(object):
         '''
         for blank in self.blanks():
             for candidate in blank.candidates:
-
                 if self.candidate_count_group(candidate, self.get_nonet(blank)) == 1:
                     i, j = self.get_indices(blank)
+
                     if logging:
                         print(f"{candidate} is exclusive to R{i+1}C{j+1} in its nonet")
+
                     self[i][j] = candidate
                     break
+
                 if self.candidate_count_group(candidate, self.get_row(blank)) == 1:
                     i, j = self.get_indices(blank)
+
                     if logging:
                         print(f"{candidate} is exclusive to R{i+1}C{j+1} in its row")
+
                     self[i][j] = candidate
                     break
+
                 if self.candidate_count_group(candidate, self.get_column(blank)) == 1:
                     i, j = self.get_indices(blank)
+
                     if logging:
                         print(f"{candidate} is exclusive to R{i+1}C{j+1} in its column")
+
                     self[i][j] = candidate
                     break
-                
-                    
+
             self.update()
-            
 
     def solve_hp(self) -> None:
         '''
@@ -369,252 +434,234 @@ class Puzzle(object):
         possess the same two candidates exclusive among the same group, 
         remove any other candidates from the blank
         '''
-
         for row in self:
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in row:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
-                    if len(candidate_key[key]) == 2 and candidate_key[key] == candidate_key[key2]: # if there are only two blanks in the row with candidate
-                        for cell in row:
-                            if isinstance(cell, Blank) and cell not in candidate_key[key]:
-                                i, j = self.get_indices(candidate_key[key][0])
-                                k, l = self.get_indices(candidate_key[key][1])
-                                if logging:
-                                    print(f"(Hidden Pairs) (Row) R{i+1}C{j+1} -> {[key, key2]}")
-                                    print(f"(Hidden Pairs) (Row) R{k+1}C{l+1} -> {[key, key2]}")
-                                self[i][j].candidates = [key, key2]
-                                self[k][l].candidates = [key, key2]
+                    if len(candidate_key[key]) == 2 and candidate_key[key] == candidate_key[key2]:
+                        i, j = self.get_indices(candidate_key[key][0])
+                        k, l = self.get_indices(candidate_key[key][1])
+
+                        if logging:
+                            print(f"(Hidden Pairs) (Row) R{i+1}C{j+1} -> {[key, key2]}")
+                            print(f"(Hidden Pairs) (Row) R{k+1}C{l+1} -> {[key, key2]}")
+
+                        self[i][j].candidates = [key, key2]
+                        self[k][l].candidates = [key, key2]
 
         for column in self.columns():
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in column:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
-                    if len(candidate_key[key]) == 2 and candidate_key[key] == candidate_key[key2]: # if there are only two blanks in the row with candidate
-                        for cell in column:
-                            if isinstance(cell, Blank) and cell not in candidate_key[key]:
-                                i, j = self.get_indices(candidate_key[key][0])
-                                k, l = self.get_indices(candidate_key[key][1])
-                                if logging:
-                                    print(f"(Hidden Pairs) (Column) R{i+1}C{j+1} -> {[key, key2]}")
-                                    print(f"(Hidden Pairs) (Column) R{k+1}C{l+1} -> {[key, key2]}")
-                                self[i][j].candidates = [key, key2]
-                                self[k][l].candidates = [key, key2]
+                    if len(candidate_key[key]) == 2 and candidate_key[key] == candidate_key[key2]:
+                        i, j = self.get_indices(candidate_key[key][0])
+                        k, l = self.get_indices(candidate_key[key][1])
+
+                        if logging:
+                            print(f"(Hidden Pairs) (Column) R{i+1}C{j+1} -> {[key, key2]}")
+                            print(f"(Hidden Pairs) (Column) R{k+1}C{l+1} -> {[key, key2]}")
+
+                        self[i][j].candidates = [key, key2]
+                        self[k][l].candidates = [key, key2]
 
         for nonet in self.nonets():
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in nonet:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
-                    if len(candidate_key[key]) == 2 and candidate_key[key] == candidate_key[key2]: # if there are only two blanks in the nonet with candidate
+                    if len(candidate_key[key]) == 2 and candidate_key[key] == candidate_key[key2]:
                         i, j = self.get_indices(candidate_key[key][0])
                         k, l = self.get_indices(candidate_key[key][1])
+
                         if logging:
                             print(f"(Hidden Pairs) (Nonet) R{i+1}C{j+1} -> {[key, key2]}")
                             print(f"(Hidden Pairs) (Nonet) R{k+1}C{l+1} -> {[key, key2]}")
+
                         self[i][j].candidates = [key, key2]
                         self[k][l].candidates = [key, key2]
-    
 
-    def solve_ht(self) -> None:  
+    def solve_ht(self) -> None:
         '''
         (Solve Hidden Triples)
 
         If three blanks belonging to the same row, column, or nonet 
         possess the same three candidates exclusive among the same group, 
-        remove all other candidates from the group on which those three 
-        blanks reside
+        remove all other candidates from the blank
         '''
         for row in self:
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in row:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
                     for key3 in range(1+key2, 10):
-                        if len(candidate_key[key]) in range(1, 4) and len(candidate_key[key2]) in range(1, 4) and len(candidate_key[key3]) in range(1, 4): # do three candidates appear between 1 - 3 times
+                        if len(candidate_key[key]) in range(1, 4) and len(candidate_key[key2]) in range(1, 4) and len(candidate_key[key3]) in range(1, 4):
                             blanks:list[Blank] = []
+
                             for blank in candidate_key[key] + candidate_key[key2] + candidate_key[key3]:
                                 if blank not in blanks:
                                     blanks.append(blank)
+
                             if len(blanks) == 3:
-                                i, j = self.get_indices(blanks[0])
-                                k, l = self.get_indices(blanks[1])
-                                m, n = self.get_indices(blanks[2])
                                 keys:list[int] = [key, key2, key3]
-                                
-                                self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
-                                self[k][l].candidates = [c for c in self[k][l].candidates if c in keys]
-                                self[m][n].candidates = [c for c in self[m][n].candidates if c in keys]
-                                
-                                if logging:
-                                    print(f"(Row) R{i+1}C{j+1}, R{k+1}C{l+1}, R{m+1}C{n+1} -> {[c for c in self[i][j].candidates if c in keys]}, {[c for c in self[k][l].candidates if c in keys]}, {[c for c in self[m][n].candidates if c in keys]}")
-                                
+
+                                for blank in blanks:
+                                    i, j = self.get_indices(blank)
+                                    self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
 
         for column in self.columns():
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in column:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
                     for key3 in range(1+key2, 10):
-                        if len(candidate_key[key]) in range(1, 4) and len(candidate_key[key2]) in range(1, 4) and len(candidate_key[key3]) in range(1, 4): # do three candidates appear between 1 - 3 times
+                        if len(candidate_key[key]) in range(1, 4) and len(candidate_key[key2]) in range(1, 4) and len(candidate_key[key3]) in range(1, 4):
                             blanks:list[Blank] = []
+
                             for blank in candidate_key[key] + candidate_key[key2] + candidate_key[key3]:
                                 if blank not in blanks:
                                     blanks.append(blank)
+
                             if len(blanks) == 3:
-                                i, j = self.get_indices(blanks[0])
-                                k, l = self.get_indices(blanks[1])
-                                m, n = self.get_indices(blanks[2])
                                 keys:list[int] = [key, key2, key3]
-                                self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
-                                self[k][l].candidates = [c for c in self[k][l].candidates if c in keys]
-                                self[m][n].candidates = [c for c in self[m][n].candidates if c in keys]
-                                
-                                if logging:
-                                    print(f"(Column) R{i+1}C{j+1}, R{k+1}C{l+1}, R{m+1}C{n+1} -> {[c for c in self[i][j].candidates if c in keys]}, {[c for c in self[k][l].candidates if c in keys]}, {[c for c in self[m][n].candidates if c in keys]}")
+
+                                for blank in blanks:
+                                    i, j = self.get_indices(blank)
+                                    self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
 
         for nonet in self.nonets():
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in nonet:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
                     for key3 in range(1+key2, 10):
-                        if len(candidate_key[key]) in range(1, 4) and len(candidate_key[key2]) in range(1, 4) and len(candidate_key[key3]) in range(1, 4): # do three candidates appear between 1 - 3 times
+                        if len(candidate_key[key]) in range(1, 4) and len(candidate_key[key2]) in range(1, 4) and len(candidate_key[key3]) in range(1, 4):
                             blanks:list[Blank] = []
+
                             for blank in candidate_key[key] + candidate_key[key2] + candidate_key[key3]:
                                 if blank not in blanks:
                                     blanks.append(blank)
+
                             if len(blanks) == 3:
-                                i, j = self.get_indices(blanks[0])
-                                k, l = self.get_indices(blanks[1])
-                                m, n = self.get_indices(blanks[2])
                                 keys:list[int] = [key, key2, key3]
-                                self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
-                                self[k][l].candidates = [c for c in self[k][l].candidates if c in keys]
-                                self[m][n].candidates = [c for c in self[m][n].candidates if c in keys]
-                                
-                                if logging:
-                                    print(f"(Nonet) R{i+1}C{j+1}, R{k+1}C{l+1}, R{m+1}C{n+1} -> {[c for c in self[i][j].candidates if c in keys]}, {[c for c in self[k][l].candidates if c in keys]}, {[c for c in self[m][n].candidates if c in keys]}")
-    
+
+                                for blank in blanks:
+                                    i, j = self.get_indices(blank)
+                                    self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
+
     def solve_hq(self) -> None:
         '''
         (Solve Hidden Quads)
-
-        
         '''
         for row in self:
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in row:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
                     for key3 in range(1+key2, 10):
                         for key4 in range(1+key3, 10):
-                            if len(candidate_key[key]) in range(1, 5) and len(candidate_key[key2]) in range(1, 5) and len(candidate_key[key3]) in range(1, 5) and len(candidate_key[key4]) in range(1, 5): # do three candidates appear between 1 - 3 times
+                            if len(candidate_key[key]) in range(1, 5) and len(candidate_key[key2]) in range(1, 5) and len(candidate_key[key3]) in range(1, 5) and len(candidate_key[key4]) in range(1, 5):
                                 blanks:list[Blank] = []
+
                                 for blank in candidate_key[key] + candidate_key[key2] + candidate_key[key3] + candidate_key[key4]:
                                     if blank not in blanks:
                                         blanks.append(blank)
+
                                 if len(blanks) == 4:
-                                    i, j = self.get_indices(blanks[0])
-                                    k, l = self.get_indices(blanks[1])
-                                    m, n = self.get_indices(blanks[2])
-                                    o, p = self.get_indices(blanks[3])
                                     keys:list[int] = [key, key2, key3, key4]
-                                    
-                                    self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
-                                    self[k][l].candidates = [c for c in self[k][l].candidates if c in keys]
-                                    self[m][n].candidates = [c for c in self[m][n].candidates if c in keys]
-                                    self[o][p].candidates = [c for c in self[o][p].candidates if c in keys]
-                                
-                                    if logging:
-                                        print(f"R{i+1}C{j+1} R{k+1}C{l+1} R{m+1}C{n+1} R{o+1}C{p+1} =", *keys, *[blank.candidates for blank in blanks])
-                                
+
+                                    for blank in blanks:
+                                        i, j = self.get_indices(blank)
+                                        self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
 
         for column in self.columns():
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in column:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
                     for key3 in range(1+key2, 10):
                         for key4 in range(1+key3, 10):
-                            if len(candidate_key[key]) in range(1, 5) and len(candidate_key[key2]) in range(1, 5) and len(candidate_key[key3]) in range(1, 5) and len(candidate_key[key4]) in range(1, 5): # do three candidates appear between 1 - 3 times
+                            if len(candidate_key[key]) in range(1, 5) and len(candidate_key[key2]) in range(1, 5) and len(candidate_key[key3]) in range(1, 5) and len(candidate_key[key4]) in range(1, 5):
                                 blanks:list[Blank] = []
+
                                 for blank in candidate_key[key] + candidate_key[key2] + candidate_key[key3] + candidate_key[key4]:
                                     if blank not in blanks:
                                         blanks.append(blank)
-                                if len(blanks) == 4:
-                                    i, j = self.get_indices(blanks[0])
-                                    k, l = self.get_indices(blanks[1])
-                                    m, n = self.get_indices(blanks[2])
-                                    o, p = self.get_indices(blanks[3])
-                                    keys:list[int] = [key, key2, key3, key4]
-                                    
-                                    self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
-                                    self[k][l].candidates = [c for c in self[k][l].candidates if c in keys]
-                                    self[m][n].candidates = [c for c in self[m][n].candidates if c in keys]
-                                    self[o][p].candidates = [c for c in self[o][p].candidates if c in keys]
 
-                                    if logging:
-                                        print(f"R{i+1}C{j+1} R{k+1}C{l+1} R{m+1}C{n+1} R{o+1}C{p+1} =", *keys, *[blank.candidates for blank in blanks])
-                                
+                                if len(blanks) == 4:
+                                    keys:list[int] = [key, key2, key3, key4]
+
+                                    for blank in blanks:
+                                        i, j = self.get_indices(blank)
+                                        self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
 
         for nonet in self.nonets():
             candidate_key:dict[int, list[Blank]] = {n : [] for n in range(1, 10)}
+
             for cell in nonet:
                 if isinstance(cell, Blank):
                     for candidate in cell.candidates:
                         candidate_key[candidate].append(cell)
+
             for key in range(1, 10):
                 for key2 in range(1+key, 10):
                     for key3 in range(1+key2, 10):
                         for key4 in range(1+key3, 10):
-                            if len(candidate_key[key]) in range(1, 5) and len(candidate_key[key2]) in range(1, 5) and len(candidate_key[key3]) in range(1, 5) and len(candidate_key[key4]) in range(1, 5): # do three candidates appear between 1 - 3 times
+                            if len(candidate_key[key]) in range(1, 5) and len(candidate_key[key2]) in range(1, 5) and len(candidate_key[key3]) in range(1, 5) and len(candidate_key[key4]) in range(1, 5):
                                 blanks:list[Blank] = []
+
                                 for blank in candidate_key[key] + candidate_key[key2] + candidate_key[key3] + candidate_key[key4]:
                                     if blank not in blanks:
                                         blanks.append(blank)
+
                                 if len(blanks) == 4:
-                                    i, j = self.get_indices(blanks[0])
-                                    k, l = self.get_indices(blanks[1])
-                                    m, n = self.get_indices(blanks[2])
-                                    o, p = self.get_indices(blanks[3])
                                     keys:list[int] = [key, key2, key3, key4]
 
-                                    self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
-                                    self[k][l].candidates = [c for c in self[k][l].candidates if c in keys]
-                                    self[m][n].candidates = [c for c in self[m][n].candidates if c in keys]
-                                    self[o][p].candidates = [c for c in self[o][p].candidates if c in keys]
+                                    for blank in blanks:
+                                        i, j = self.get_indices(blank)
+                                        self[i][j].candidates = [c for c in self[i][j].candidates if c in keys]
 
-                                    if logging:
-                                        print(f"R{i+1}C{j+1} R{k+1}C{l+1} R{m+1}C{n+1} R{o+1}C{p+1} =", *keys, *[blank.candidates for blank in blanks])
-                                    
-        
-    
     def solve_pp(self) -> None:
         '''
         (Solve Pointing Pairs)
@@ -624,51 +671,46 @@ class Puzzle(object):
         the one which they exclusively host said candidate, remove 
         that candidate from all other blanks on that other group
         '''
-        for row in self: 
+        for row in self:
             for n in range(1, 10):
-                if self.candidate_count_group(n, row) == 2:  
+                if self.candidate_count_group(n, row) == 2:
                     pair:list[Blank] = [cell for cell in row if isinstance(cell, Blank) and n in cell.candidates]
-                    for cell in self.same_nonet(*pair, ret=True) if self.same_nonet(*pair) else []:
-                        if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
-                            i, j = self.get_indices(cell)
-                            self[i][j].candidates.remove(n)
-                            if logging:
-                                self.log(self.solve_pp, cell)
-                                print(f"  -= {n} ")
-                                print("Row")
-                                print([self.coords(blank) for blank in pair])
-                
-        for column in self.columns(): 
+
+                    if self.same_nonet(*pair):
+                        for cell in self.get_nonet(pair[0]):
+                            if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
+
+        for column in self.columns():
             for n in range(1, 10):
-                if self.candidate_count_group(n, column) == 2:  
+                if self.candidate_count_group(n, column) == 2:
                     pair:list[Blank] = [cell for cell in column if isinstance(cell, Blank) and n in cell.candidates]
-                    for cell in self.same_nonet(*pair, ret=True) if self.same_nonet(*pair) else []:
-                        if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
-                            i, j = self.get_indices(cell)
-                            self[i][j].candidates.remove(n)
-                            if logging:
-                                self.log(self.solve_pp, cell)
-                                print(f"  -= {n} ")
-                                print("Column")
-                                print([self.coords(blank) for blank in pair])
 
-        for nonet in self.nonets(): 
+                    if self.same_nonet(*pair):
+                        for cell in self.get_nonet(pair[0]):
+                            if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
+
+        for nonet in self.nonets():
             for n in range(1, 10):
-                if self.candidate_count_group(n, nonet) == 2:  
+                if self.candidate_count_group(n, nonet) == 2:
                     pair:list[Blank] = [cell for cell in nonet if isinstance(cell, Blank) and n in cell.candidates]
-                    for cell in self.same_group(*pair, ret=True) if self.same_group(*pair) and self.same_group(*pair, ret=True) != nonet else []:
-                        if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
-                            i, j = self.get_indices(cell)
-                            self[i][j].candidates.remove(n)
-                            if logging:
-                                self.log(self.solve_pp, cell)
-                                print(f"  -= {n} ")
-                                print("Nonet")
-                                print([self.coords(blank) for blank in pair])
 
+                    if self.same_row(*pair):
+                        for cell in self.get_row(pair[0]):
+                            if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
 
+                    elif self.same_col(*pair):
+                        for cell in self.get_column(pair[0]):
+                            if isinstance(cell, Blank) and cell not in pair and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
 
-    def solve_pt(self) -> None: # Not thoroughly tested
+    def solve_pt(self) -> None:
         '''
         (Solve Pointing Triples)
 
@@ -677,45 +719,46 @@ class Puzzle(object):
         the one which they exclusively host said candidate, remove 
         that candidate from all other blanks on that other group
         '''
-        for row in self: 
+        for row in self:
             for n in range(1, 10):
-                if self.candidate_count_group(n, row) == 3:  
+                if self.candidate_count_group(n, row) == 3:
                     triple:list[Blank] = [cell for cell in row if isinstance(cell, Blank) and n in cell.candidates]
-                    for cell in self.same_nonet(*triple, ret=True) if self.same_nonet(*triple) else []:
-                        if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
-                            i, j = self.get_indices(cell)
-                            self[i][j].candidates.remove(n)
-                            if logging:
-                                self.log(self.solve_pt, cell)
-                                print(f"  -= {n} ")
-                
-        for column in self.columns(): 
+
+                    if self.same_nonet(*triple):
+                        for cell in self.get_nonet(triple[0]):
+                            if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
+
+        for column in self.columns():
             for n in range(1, 10):
-                if self.candidate_count_group(n, column) == 3:  
+                if self.candidate_count_group(n, column) == 3:
                     triple:list[Blank] = [cell for cell in column if isinstance(cell, Blank) and n in cell.candidates]
-                    for cell in self.same_nonet(*triple, ret=True) if self.same_nonet(*triple) else []:
-                        if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
-                            i, j = self.get_indices(cell)
-                            self[i][j].candidates.remove(n)
-                            if logging:
-                                self.log(self.solve_pt, cell)
-                                print(f"  -= {n} ")
 
-        for nonet in self.nonets(): 
+                    if self.same_nonet(*triple):
+                        for cell in self.get_nonet(triple[0]):
+                            if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
+
+        for nonet in self.nonets():
             for n in range(1, 10):
-                if self.candidate_count_group(n, nonet) == 3:  
+                if self.candidate_count_group(n, nonet) == 3:
                     triple:list[Blank] = [cell for cell in nonet if isinstance(cell, Blank) and n in cell.candidates]
-                    for cell in self.same_group(*triple, ret=True) if self.same_group(*triple) and self.same_group(*triple, ret=True) != nonet else []:
-                        if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
-                            i, j = self.get_indices(cell)
-                            self[i][j].candidates.remove(n)
-                            if logging:
-                                self.log(self.solve_pt, cell)
-                                print(f"  -= {n} ")
-                            
 
+                    if self.same_row(*triple):
+                        for cell in self.get_row(triple[0]):
+                            if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
 
-    def solve_xw(self) -> None: # <-- THIS BOI NEED OPTIMIZATION
+                    elif self.same_col(*triple):
+                        for cell in self.get_column(triple[0]):
+                            if isinstance(cell, Blank) and cell not in triple and n in cell.candidates:
+                                i, j = self.get_indices(cell)
+                                self[i][j].candidates.remove(n)
+
+    def solve_xw(self) -> None:
         '''
         (Solve X-Wings)
 
@@ -724,34 +767,39 @@ class Puzzle(object):
         of the rectangle on its rows or to its columns, remove that 
         candidate from the axis on which it is not exclusive
         '''
-        for i in range(len(self.blanks())):
-            for j in range(1+i, len(self.blanks())):
-                for k in range(1+j, len(self.blanks())): # HOLY NEST
-                    for l in range(1+k, len(self.blanks())):
-                        if self.same_row(self.blanks()[i], self.blanks()[j]) and self.same_row(self.blanks()[k], self.blanks()[l]) and self.same_col(self.blanks()[i], self.blanks()[k]) and self.same_col(self.blanks()[j], self.blanks()[l]):
-                            for num in range(1, 10):
-                                if num in self.blanks()[i].candidates and num in self.blanks()[j].candidates and num in self.blanks()[k].candidates and num in self.blanks()[l].candidates:
-                                    if self.candidate_count_group(num, self.get_row(self.blanks()[i])) == 2 and self.candidate_count_group(num, self.get_row(self.blanks()[k])) == 2:
-                                        for cell in self.get_column(self.blanks()[i]):   # IT'S STILL GOING??
-                                            if isinstance(cell, Blank) and cell not in [self.blanks()[i], self.blanks()[k]] and num in cell.candidates:
-                                                m, n = self.get_indices(cell)
-                                                self[m][n].candidates.remove(num)
-                                        for cell in self.get_column(self.blanks()[j]): 
-                                            if isinstance(cell, Blank) and cell not in [self.blanks()[j], self.blanks()[l]] and num in cell.candidates:
-                                                m, n = self.get_indices(cell)
-                                                self[m][n].candidates.remove(num)
-                                    if self.candidate_count_group(num, self.get_column(self.blanks()[i])) == 2 and self.candidate_count_group(num, self.get_column(self.blanks()[j])) == 2:
-                                        for cell in self.get_row(self.blanks()[i]):  
-                                            if isinstance(cell, Blank) and cell not in [self.blanks()[i], self.blanks()[j]] and num in cell.candidates:
-                                                m, n = self.get_indices(cell)
-                                                self[m][n].candidates.remove(num)
-                                        for cell in self.get_row(self.blanks()[k]):  
-                                            if isinstance(cell, Blank) and cell not in [self.blanks()[k], self.blanks()[l]] and num in cell.candidates:
-                                                m, n = self.get_indices(cell)
-                                                self[m][n].candidates.remove(num)
-                                    
+        blanks:list[Blank] = self.blanks()
 
-    def solve_xyw(self) -> None: # <-- THIS BOI NEED IT TOO
+        for i in range(len(blanks)):
+            for j in range(1+i, len(blanks)):
+                for k in range(1+j, len(blanks)):
+                    for l in range(1+k, len(blanks)):
+                        if self.same_row(blanks[i], blanks[j]) and self.same_row(blanks[k], blanks[l]) and self.same_col(blanks[i], blanks[k]) and self.same_col(blanks[j], blanks[l]):
+                            for num in range(1, 10):
+                                if num in blanks[i].candidates and num in blanks[j].candidates and num in blanks[k].candidates and num in blanks[l].candidates:
+
+                                    if self.candidate_count_group(num, self.get_row(blanks[i])) == 2 and self.candidate_count_group(num, self.get_row(blanks[k])) == 2:
+                                        for cell in self.get_column(blanks[i]):
+                                            if isinstance(cell, Blank) and cell not in [blanks[i], blanks[k]] and num in cell.candidates:
+                                                m, n = self.get_indices(cell)
+                                                self[m][n].candidates.remove(num)
+
+                                        for cell in self.get_column(blanks[j]):
+                                            if isinstance(cell, Blank) and cell not in [blanks[j], blanks[l]] and num in cell.candidates:
+                                                m, n = self.get_indices(cell)
+                                                self[m][n].candidates.remove(num)
+
+                                    if self.candidate_count_group(num, self.get_column(blanks[i])) == 2 and self.candidate_count_group(num, self.get_column(blanks[j])) == 2:
+                                        for cell in self.get_row(blanks[i]):
+                                            if isinstance(cell, Blank) and cell not in [blanks[i], blanks[j]] and num in cell.candidates:
+                                                m, n = self.get_indices(cell)
+                                                self[m][n].candidates.remove(num)
+
+                                        for cell in self.get_row(blanks[k]):
+                                            if isinstance(cell, Blank) and cell not in [blanks[k], blanks[l]] and num in cell.candidates:
+                                                m, n = self.get_indices(cell)
+                                                self[m][n].candidates.remove(num)
+
+    def solve_xyw(self) -> None:
         '''
         (Solve XY-Wing)
 
@@ -760,47 +808,46 @@ class Puzzle(object):
         as our pivot where each of the two wings possess one of 
         the pivot's candidates along with one that is shared by both, 
         remove that shared candidate from all other blanks that reside
-        in the same groups as both wings 
-        '''  
+        in the same groups as both wings
+        '''
+        blanks:list[Blank] = self.blanks()
 
-        for i in range(len(self.blanks())):
-            for j in range(1+i, len(self.blanks())):
-                for k in range(1+j, len(self.blanks())):
-                    combined:list[int] = self.blanks()[i].candidates + self.blanks()[j].candidates + self.blanks()[k].candidates
-                    if (self.same_group(self.blanks()[j], self.blanks()[i])) and (self.same_group(self.blanks()[j], self.blanks()[k])) and len(set(combined)) == 3 and len(self.blanks()[i].candidates) == 2 and len(self.blanks()[j].candidates) == 2 and len(self.blanks()[k].candidates) == 2 and combined.count(list(set(combined))[0]) == combined.count(list(set(combined))[1]) == combined.count(list(set(combined))[2]): 
-                        #print(f"Wing1={self.coords(self.blanks()[i])}{self.blanks()[i].candidates}, Wing2={self.coords(self.blanks()[k])}{self.blanks()[k].candidates}, Pivot={self.coords(self.blanks()[j])}{self.blanks()[j].candidates}")
-                        z:int = self.blanks()[i].candidates[0] if self.blanks()[i].candidates[0] in self.blanks()[k].candidates else self.blanks()[i].candidates[1]
-                        for blank in self.blanks():
-                            if blank not in [self.blanks()[i], self.blanks()[j], self.blanks()[k]] and self.same_group(blank, self.blanks()[i]) and self.same_group(blank, self.blanks()[k]) and z in blank.candidates:
+        for i in range(len(blanks)):
+            for j in range(1+i, len(blanks)):
+                for k in range(1+j, len(blanks)):
+                    combined:list[int] = blanks[i].candidates + blanks[j].candidates + blanks[k].candidates
+
+                    if self.same_group(blanks[j], blanks[i]) and self.same_group(blanks[j], blanks[k]) and len(set(combined)) == 3 and len(blanks[i].candidates) == 2 and len(blanks[j].candidates) == 2 and len(blanks[k].candidates) == 2 and combined.count(list(set(combined))[0]) == combined.count(list(set(combined))[1]) == combined.count(list(set(combined))[2]):
+                        z:int = blanks[i].candidates[0] if blanks[i].candidates[0] in blanks[k].candidates else blanks[i].candidates[1]
+
+                        for blank in blanks:
+                            if blank not in [blanks[i], blanks[j], blanks[k]] and self.same_group(blank, blanks[i]) and self.same_group(blank, blanks[k]) and z in blank.candidates:
                                 l, m = self.get_indices(blank)
-                                if logging:
-                                    print(f"{self.coords(blank)} -> {self[l][m].candidates} -= {z}")
                                 self[l][m].candidates.remove(z)
-                
-    def solve_xyzw(self) -> None: # DONT FORGET THIS ONE
+
+    def solve_xyzw(self) -> None:
         '''
         (Solve XYZ-Wing)
+        '''
+        blanks:list[Blank] = self.blanks()
 
-        
-        '''             
-        for i in range(len(self.blanks())):
-            for j in range(1+i, len(self.blanks())):
-                for k in range(1+j, len(self.blanks())):
-                    combined:list[int] = self.blanks()[i].candidates + self.blanks()[j].candidates + self.blanks()[k].candidates
+        for i in range(len(blanks)):
+            for j in range(1+i, len(blanks)):
+                for k in range(1+j, len(blanks)):
+                    combined:list[int] = blanks[i].candidates + blanks[j].candidates + blanks[k].candidates
 
-                    if len(combined) == 7 and len(set(combined)) == 3 and len(self.blanks()[i].candidates) in [2, 3] and len(self.blanks()[j].candidates) in [2, 3] and len(self.blanks()[k].candidates) in [2, 3] and len([num for num in set(combined) if combined.count(num) == 3]) == 1:
-                        pivot:Blank = [blank for blank in [self.blanks()[i], self.blanks()[j], self.blanks()[k]] if len(blank.candidates) == 3][0]
-                        wings:list[Blank] = [blank for blank in [self.blanks()[i], self.blanks()[j], self.blanks()[k]] if len(blank.candidates) == 2]
+                    if len(combined) == 7 and len(set(combined)) == 3 and len(blanks[i].candidates) in [2, 3] and len(blanks[j].candidates) in [2, 3] and len(blanks[k].candidates) in [2, 3] and len([num for num in set(combined) if combined.count(num) == 3]) == 1:
+                        pivot:Blank = [blank for blank in [blanks[i], blanks[j], blanks[k]] if len(blank.candidates) == 3][0]
+                        wings:list[Blank] = [blank for blank in [blanks[i], blanks[j], blanks[k]] if len(blank.candidates) == 2]
                         y:int = [num for num in set(combined) if combined.count(num) == 3][0]
+
                         if wings[0].candidates != wings[1].candidates and self.same_group(pivot, wings[0]) and self.same_group(pivot, wings[1]):
-                            for blank in self.blanks():
+                            for blank in blanks:
                                 if self.same_group(blank, pivot) and self.same_group(blank, wings[0]) and self.same_group(blank, wings[1]) and y in blank.candidates and blank not in [pivot] + wings:
                                     l, m = self.get_indices(blank)
                                     self[l][m].candidates.remove(y)
-                                    if logging:
-                                        print(f"{self.coords(blank)} -=  {y}")
-    
-    def solve_sf(self) -> None: # Has not been thoroughly tested, but seems to work..? [Some jellyfish parity adjustments made >> Still not properly tested]
+
+    def solve_sf(self) -> None:
         '''
         (Solve Swordfish)
 
@@ -809,66 +856,62 @@ class Puzzle(object):
         candidate from the blanks co-columnar with the row blanks, and 
         vice versa applies with columns and rows swapped
         '''
-
         for n in range(1, 10):
             nrows:list[list[Blank]] = [row for row in self if self.candidate_count_group(n, row) in range(1, 4)]
+
             if len(nrows) >= 3:
-                for x in range(len(nrows)-2):
-                    rows:list[list[Blank]] = nrows[x:x+3]
-                    nblanks:list[Blank] = []
+                for i in range(len(nrows)):
+                    for j in range(1+i, len(nrows)):
+                        for k in range(1+j, len(nrows)):
+                            rows:list[list[Blank]] = [nrows[i], nrows[j], nrows[k]]
+                            nblanks:list[Blank] = []
 
-                    for i in range(9):
-                        if isinstance(rows[0][i], Blank) and n in rows[0][i].candidates:
-                            nblanks.append(rows[0][i])
-                        if isinstance(rows[1][i], Blank) and n in rows[1][i].candidates:
-                            nblanks.append(rows[1][i])
-                        if isinstance(rows[2][i], Blank) and n in rows[2][i].candidates:
-                            nblanks.append(rows[2][i])
+                            for row in rows:
+                                for cell in row:
+                                    if isinstance(cell, Blank) and n in cell.candidates:
+                                        nblanks.append(cell)
 
-                    diff_cols:list[list[Blank]] = []
-                    for i in range(len(nblanks)):
-                        if self.get_column(nblanks[i]) not in diff_cols:
-                            diff_cols.append(self.get_column(nblanks[i]))
-                            
-                    if len(diff_cols) == 3: 
-                        for blank in self.blanks():
-                            if self.get_column(blank) in diff_cols and blank not in nblanks and n in blank.candidates:
-                                i, j = self.get_indices(blank)
-                                if logging:
-                                    self.log(self.solve_sf, blank)
-                                    print(f"-= {n}")
-                                self[i][j].candidates.remove(n)
+                            diff_cols:list[list[int | Blank]] = []
 
-            ncols:list[list[Blank]] = [col for col in self.columns() if self.candidate_count_group(n, col) in range(1, 4)]
+                            for blank in nblanks:
+                                column:list[int | Blank] = self.get_column(blank)
+
+                                if column not in diff_cols:
+                                    diff_cols.append(column)
+
+                            if len(diff_cols) == 3:
+                                for blank in self.blanks():
+                                    if self.get_column(blank) in diff_cols and blank not in nblanks and n in blank.candidates:
+                                        i2, j2 = self.get_indices(blank)
+                                        self[i2][j2].candidates.remove(n)
+
+            ncols:list[list[int | Blank]] = [column for column in self.columns() if self.candidate_count_group(n, column) in range(1, 4)]
+
             if len(ncols) >= 3:
-                for x in range(len(ncols)-2):
-                    cols:list[list[Blank]] = ncols[x:x+3]
-                    nblanks:list[Blank] = []
+                for i in range(len(ncols)):
+                    for j in range(1+i, len(ncols)):
+                        for k in range(1+j, len(ncols)):
+                            cols:list[list[int | Blank]] = [ncols[i], ncols[j], ncols[k]]
+                            nblanks:list[Blank] = []
 
-                    for i in range(9):
-                        if isinstance(cols[0][i], Blank) and n in cols[0][i].candidates:
-                            nblanks.append(cols[0][i])
-                        if isinstance(cols[1][i], Blank) and n in cols[1][i].candidates:
-                            nblanks.append(cols[1][i])
-                        if isinstance(cols[2][i], Blank) and n in cols[2][i].candidates:
-                            nblanks.append(cols[2][i])
+                            for column in cols:
+                                for cell in column:
+                                    if isinstance(cell, Blank) and n in cell.candidates:
+                                        nblanks.append(cell)
 
-                    diff_rows:list[list[Blank]] = []
-                    for i in range(len(nblanks)):
-                        if self.get_row(nblanks[i]) not in diff_rows:
-                            diff_rows.append(self.get_row(nblanks[i]))
-                            
-                        
-                    if len(diff_rows) == 3: 
-                        for blank in self.blanks():
-                            if self.get_row(blank) in diff_rows and blank not in nblanks and n in blank.candidates:
-                                i, j = self.get_indices(blank)
-                                if logging:
-                                    self.log(self.solve_sf, blank)
-                                    print(f"-= {n}")
-                                self[i][j].candidates.remove(n)
-                            
+                            diff_rows:list[list[int | Blank]] = []
 
+                            for blank in nblanks:
+                                row:list[int | Blank] = self.get_row(blank)
+
+                                if row not in diff_rows:
+                                    diff_rows.append(row)
+
+                            if len(diff_rows) == 3:
+                                for blank in self.blanks():
+                                    if self.get_row(blank) in diff_rows and blank not in nblanks and n in blank.candidates:
+                                        i2, j2 = self.get_indices(blank)
+                                        self[i2][j2].candidates.remove(n)
 
     def solve_jf(self) -> None:
         '''
@@ -879,117 +922,111 @@ class Puzzle(object):
         candidate from the blanks co-columnar with the row blanks, and 
         vice versa applies with columns and rows swapped
         '''
-
         for n in range(1, 10):
-            nrows:list[list[Blank]] = [row for row in self if self.candidate_count_group(n, row) in range(1, 5)]
-                            
-            if len(nrows) >= 4: 
-                effective:bool = False
-                for w in range(len(nrows)):
-                    for x in range(1+w, len(nrows)):
-                        for y in range(1+x, len(nrows)):
-                            for z in range(1+y, len(nrows)):
-                                rows:list[list[Blank]] = [nrows[letter] for letter in [w, x, y, z]]
-                                nblanks:list[Blank] = []
-                                for i in range(9):
-                                    if isinstance(rows[0][i], Blank) and n in rows[0][i].candidates:
-                                        nblanks.append(rows[0][i])
-                                    if isinstance(rows[1][i], Blank) and n in rows[1][i].candidates:
-                                        nblanks.append(rows[1][i])
-                                    if isinstance(rows[2][i], Blank) and n in rows[2][i].candidates:
-                                        nblanks.append(rows[2][i])
-                                    if isinstance(rows[3][i], Blank) and n in rows[3][i].candidates:
-                                        nblanks.append(rows[3][i])
+            nrows:list[list[int | Blank]] = [row for row in self if self.candidate_count_group(n, row) in range(1, 5)]
 
-                                diff_cols:list[list[Blank]] = []
-                                for i in range(len(nblanks)):
-                                    if self.get_column(nblanks[i]) not in diff_cols:
-                                        diff_cols.append(self.get_column(nblanks[i]))
-                                        
-                                if len(diff_cols) == 4: 
+            if len(nrows) >= 4:
+                for i in range(len(nrows)):
+                    for j in range(1+i, len(nrows)):
+                        for k in range(1+j, len(nrows)):
+                            for l in range(1+k, len(nrows)):
+                                rows:list[list[int | Blank]] = [nrows[i], nrows[j], nrows[k], nrows[l]]
+                                nblanks:list[Blank] = []
+
+                                for row in rows:
+                                    for cell in row:
+                                        if isinstance(cell, Blank) and n in cell.candidates:
+                                            nblanks.append(cell)
+
+                                diff_cols:list[list[int | Blank]] = []
+
+                                for blank in nblanks:
+                                    column:list[int | Blank] = self.get_column(blank)
+
+                                    if column not in diff_cols:
+                                        diff_cols.append(column)
+
+                                if len(diff_cols) == 4:
                                     for blank in self.blanks():
                                         if self.get_column(blank) in diff_cols and blank not in nblanks and n in blank.candidates:
-                                            i, j = self.get_indices(blank)
-                                            if logging:
-                                                self.log(self.solve_jf, blank)
-                                                print(f"-= {n}")
-                                            self[i][j].candidates.remove(n)
-                                            effective = True
-                if effective: # a hidden single had to occur in between these two in the intial test sample, so we break out of the function and wait for the next rep to apply any further jellyfish
-                    return 
+                                            i2, j2 = self.get_indices(blank)
+                                            self[i2][j2].candidates.remove(n)
 
-            ncols:list[list[Blank]] = [col for col in self if self.candidate_count_group(n, col) in range(1, 5)]
-            if len(ncols) >= 4: 
-                effective:bool = False
-                for w in range(len(ncols)): 
-                    for x in range(1+w, len(ncols)):
-                        for y in range(1+x, len(ncols)):
-                            for z in range(1+y, len(ncols)):
-                                cols:list[list[Blank]] = [ncols[letter] for letter in [w, x, y, z]]
+            ncols:list[list[int | Blank]] = [column for column in self.columns() if self.candidate_count_group(n, column) in range(1, 5)]
+
+            if len(ncols) >= 4:
+                for i in range(len(ncols)):
+                    for j in range(1+i, len(ncols)):
+                        for k in range(1+j, len(ncols)):
+                            for l in range(1+k, len(ncols)):
+                                cols:list[list[int | Blank]] = [ncols[i], ncols[j], ncols[k], ncols[l]]
                                 nblanks:list[Blank] = []
-                                for i in range(9):
-                                    if isinstance(cols[0][i], Blank) and n in cols[0][i].candidates:
-                                        nblanks.append(cols[0][i])
-                                    if isinstance(cols[1][i], Blank) and n in cols[1][i].candidates:
-                                        nblanks.append(cols[1][i])
-                                    if isinstance(cols[2][i], Blank) and n in cols[2][i].candidates:
-                                        nblanks.append(cols[2][i])
-                                    if isinstance(cols[3][i], Blank) and n in cols[3][i].candidates:
-                                        nblanks.append(cols[3][i])
 
-                                diff_rows:list[list[Blank]] = []
-                                for i in range(len(nblanks)):
-                                    if self.get_column(nblanks[i]) not in diff_rows:
-                                        diff_rows.append(self.get_row(nblanks[i]))
-                                
-                                if len(diff_rows) == 4: 
+                                for column in cols:
+                                    for cell in column:
+                                        if isinstance(cell, Blank) and n in cell.candidates:
+                                            nblanks.append(cell)
+
+                                diff_rows:list[list[int | Blank]] = []
+
+                                for blank in nblanks:
+                                    row:list[int | Blank] = self.get_row(blank)
+
+                                    if row not in diff_rows:
+                                        diff_rows.append(row)
+
+                                if len(diff_rows) == 4:
                                     for blank in self.blanks():
-                                        if self.get_column(blank) in diff_rows and blank not in nblanks and n in blank.candidates:
-                                            i, j = self.get_indices(blank)
-                                            if logging:
-                                                self.log(self.solve_jf, blank)
-                                                print(f"-= {n}")
-                                            self[i][j].candidates.remove(n)
-                                            effective = True
-                
-                if effective:
-                    return
-        
+                                        if self.get_row(blank) in diff_rows and blank not in nblanks and n in blank.candidates:
+                                            i2, j2 = self.get_indices(blank)
+                                            self[i2][j2].candidates.remove(n)
 
     def solve(self) -> None:
         '''
         (Solve)
-
-
         '''
 
-        # Future algorithm: 
-        '''
-        Try most basic technique
-        If effective
-        True -> return to most basic technique
-        False -> Try next most basic technique
-        If we have reached the most advanced technique and it is ineffective
-        output "Unable to solve with logic"
-        # Maybe add a brute forcer
-        
-        '''
-        for method in [
-            self.solve_os,
-            self.solve_hs,
-            self.solve_op,
-            self.solve_ot,
-            self.solve_oq,
-            self.solve_hp,
-            self.solve_ht,
-            self.solve_hq,
-            self.solve_pp,
-            self.solve_pt,
-            self.solve_xw,
-            self.solve_xyw,
-            self.solve_xyzw,
-            self.solve_sf,
-            self.solve_jf
-        ]:
-            method()
-            self.update()
+        methods:list[tuple[str, function]] = [
+            ("Basic Elimination", self.update),
+            ("Obvious Singles", self.solve_os),
+            ("Hidden Singles", self.solve_hs),
+            ("Obvious Pairs", self.solve_op),
+            ("Obvious Triples", self.solve_ot),
+            ("Obvious Quads", self.solve_oq),
+            ("Hidden Pairs", self.solve_hp),
+            ("Hidden Triples", self.solve_ht),
+            ("Hidden Quads", self.solve_hq),
+            ("Pointing Pairs", self.solve_pp),
+            ("Pointing Triples", self.solve_pt),
+            ("X-Wings", self.solve_xw),
+            ("XY-Wing", self.solve_xyw),
+            ("XYZ-Wing", self.solve_xyzw),
+            ("Swordfish", self.solve_sf),
+            ("Jellyfish", self.solve_jf)
+        ]
+
+        self.technique_sequence = []
+        self.technique_states = []
+        self.initial_state = self.get_state()
+
+        while not self.is_solved():
+            progress:bool = False
+
+            for technique, method in methods:
+                before:tuple = self.get_state()
+                method()
+                after:tuple = self.get_state()
+
+                if not self.is_valid():
+                    raise BaseException(f"Technique '{technique}' created an invalid puzzle:\n\n{self}")
+
+                if before != after:
+                    self.record_technique(technique)
+                    progress = True
+                    break
+
+                if self.is_solved():
+                    return
+
+            if not progress:
+                return
